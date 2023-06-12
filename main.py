@@ -43,9 +43,9 @@ def test_PHPFilterChecker(url):
             checker.exploit(filename)
 
 def test_EnvironChecker(url):
-    checker = EnvironChecker(url, silent=True)
+    checker = EnvironChecker(url, silent=False)
     output, param_name = checker.environ_check()
-    if output is not None:
+    if output:
         choice = input("Select an action (1: Run web shell, 2: Skip): ")
         if choice == "1":
             checker.web_shell(param_name)

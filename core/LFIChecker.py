@@ -3,10 +3,13 @@ import requests
 import urllib.parse
 from rich.console import Console
 from rich.progress import Progress
+from urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class LFIChecker:
     def __init__(self, url, depth=10, silent=False):
-        self.url = url
+        self.url = self.ensure_correct_protocol(url)
         self.depth = depth
         self.silent = silent
         self.LFI_TEST_FILES = [
@@ -26,6 +29,18 @@ class LFIChecker:
             '%252e%252e%252f'  # Double encoding with dot
         ]
 
+    def ensure_correct_protocol(self, url):
+        if not url.startswith(('http://', 'https://')):
+            try:
+                requests.get('https://' + url, timeout=3, verify=False)
+                return 'https://' + url
+            except requests.exceptions.RequestException:
+                try:
+                    requests.get('http://' + url, timeout=3, verify=False)
+                    return 'http://' + url
+                except requests.exceptions.RequestException:
+                    pass
+        return url
     
     def path_traversal_checker(self):
         parsed_url = urllib.parse.urlparse(self.url)
@@ -56,7 +71,11 @@ class LFIChecker:
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                response = requests.get(fuzzed_url)
+                try:
+                    response = requests.get(fuzzed_url, verify=False)
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    return False    
 
                 if file_regex.search(response.text):
                     if not self.silent:

