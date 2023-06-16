@@ -162,7 +162,7 @@ class PHPFilterChainGenerator:
                 
         return False, None        
                 
-    def shell(self, param_name):
+    def run_shell(self, param_name):
         self.silent = True
         if not param_name:
             self.console.print("[bold red]No valid parameter name provided.[/bold red]")
@@ -225,7 +225,7 @@ def main():
     result, param_name = checker.filter_check()
     print(f"LFI detected: {result}")
     if result:
-        checker.shell(param_name)
+        checker.run_shell(param_name)
         
 if __name__ == '__main__':
     main() 

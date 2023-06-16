@@ -1,8 +1,10 @@
 import re
 import requests
 import urllib.parse
+import numpy as np
 from rich.console import Console
 from rich.progress import Progress
+from concurrent.futures import ThreadPoolExecutor
 from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
@@ -48,10 +50,13 @@ class LFIChecker:
         file_paths = []
 
         for file_path, _ in self.LFI_TEST_FILES:
-            for i in range(self.depth):
-                for payload in self.LFI_PAYLOADS:
-                    file_paths.append((payload * i + file_path, _))
-                    file_paths.append((urllib.parse.quote(payload * i + file_path), _))
+            for payload in self.LFI_PAYLOADS:
+                file_paths.append((payload * 10 + file_path, _))
+                file_paths.append((urllib.parse.quote(payload * 10 + file_path), _))
+
+        with open('wordlists/mini.txt', 'r') as f:
+            for line in f:
+                file_paths.append((line.strip(), None))
 
         console = Console()
         total_operations = len(params.keys()) * len(file_paths)
@@ -64,8 +69,12 @@ class LFIChecker:
 
     def _scan(self, params, file_paths, parsed_url, console, total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
+        response_lengths = []
+        connection_error_count = 0
 
-        for param_name in params.keys():
+        def scan_param(param_name):
+            nonlocal connection_error_count
+
             for file_path, file_regex in file_paths:
                 new_params = params.copy()
                 new_params[param_name] = file_path
@@ -73,24 +82,38 @@ class LFIChecker:
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
                 try:
                     response = requests.get(fuzzed_url, verify=False)
+                    response_lengths.append(len(response.content))
                 except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False    
+                    connection_error_count += 1
+                    if connection_error_count >= 10:
+                        console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
+                        return False
 
-                if file_regex.search(response.text):
+                if file_regex and file_regex.search(response.text):
                     if not self.silent:
-                        console.print(f'[bold red]Possible LFI detected at {fuzzed_url}[/bold red]', style='bold red')
-                    return True
-                
+                        console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {len(response.content)}\nStatus code: {response.status_code}[/bold green]", style='bold green')
+                    return True, param_name
+
                 if progress:
                     progress.update(task, advance=1)
 
-        return False
+            stddev = np.std(response_lengths)
+            avg = np.mean(response_lengths)
+            if stddev > 0.1 * avg:
+                if not self.silent:
+                    console.print(f"{fuzzed_url}, Response length: [{len(response.content)}], Code: [{response.status_code}][/bold green]", style='bold green')
+
+            return False, None
+
+        with ThreadPoolExecutor(max_workers=300) as executor:
+            results = list(executor.map(scan_param, params.keys()))
+
+        return any(results), None
 
 def main():
     url = input('Enter site URL to test: ')
     checker = LFIChecker(url, silent=False)
-    result = checker.path_traversal_checker()
+    result, param_name = checker.path_traversal_checker()
     print(f"LFI detected: {result}")
 
 if __name__ == "__main__":

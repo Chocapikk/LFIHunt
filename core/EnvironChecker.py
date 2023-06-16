@@ -97,7 +97,7 @@ class EnvironChecker:
 
         return False, None
     
-    def web_shell(self, param_name):
+    def run_shell(self, param_name):
 
         if self.environ_check():
             session = PromptSession(history=InMemoryHistory())        
@@ -152,7 +152,7 @@ def main():
     output, param_name = checker.environ_check()
     
     if output is not None:
-        checker.web_shell(param_name)
+        checker.run_shell(param_name)
     
 
 if __name__ == "__main__":

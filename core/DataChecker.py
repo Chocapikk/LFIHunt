@@ -80,7 +80,7 @@ class DataChecker:
 
         return False, None
     
-    def shell(self, param_name):
+    def run_shell(self, param_name):
         self.silent = True
         if not self.data_check():
             self.console.print("[bold red]LFI2RCE not detected or not exploitable.[/bold red]")
@@ -136,7 +136,7 @@ def main():
     result, param_name = checker.data_check()
     print(f"LFI2RCE detected: {result}")
     if result:
-        checker.shell(param_name)
+        checker.run_shell(param_name)
 
 if __name__ == '__main__':
     main() 
