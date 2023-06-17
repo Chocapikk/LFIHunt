@@ -56,7 +56,10 @@ class LFIChecker:
 
         with open('wordlists/mini.txt', 'r') as f:
             for line in f:
-                file_paths.append((line.strip(), None))
+                stripped_line = line.strip()
+                if stripped_line:  
+                    file_paths.append((stripped_line, None))
+
 
         console = Console()
         total_operations = len(params.keys()) * len(file_paths)
@@ -74,6 +77,7 @@ class LFIChecker:
 
         def scan_param(param_name):
             nonlocal connection_error_count
+            lfi_detected = False  
 
             for file_path, file_regex in file_paths:
                 new_params = params.copy()
@@ -88,33 +92,33 @@ class LFIChecker:
                     if file_regex and file_regex.search(response.text):
                         if not self.silent:
                             console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
-                        return True, param_name
+                        lfi_detected = True
 
                     # Update stats
                     avg = np.mean(response_lengths)
                     stddev = np.std(response_lengths)
 
                     # Detect if response length is an outlier
-                    if abs(response_length - avg) > 2*stddev:   # This is 2 standard deviation anomaly detection
+                    if abs(response_length - avg) > 2*stddev and response.status_code < 400:   # This is 2 standard deviation anomaly detection
                         if not self.silent:
-                            #console.print("\n")
                             console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
-                            
+                        lfi_detected = True
+
                 except requests.exceptions.ConnectionError:
                     connection_error_count += 1
                     if connection_error_count >= 10:
                         console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
-                        return False
+                        return False, None
 
                 if progress:
                     progress.update(task, advance=1)
 
-            return False, None
+            return lfi_detected, param_name if lfi_detected else None
+
 
         with ThreadPoolExecutor(max_workers=300) as executor:
             results = list(executor.map(scan_param, params.keys()))
-
-        return any(results), None
+        return any(result for result, _ in results), None
 
 
 def main():
