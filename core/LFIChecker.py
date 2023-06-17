@@ -15,8 +15,8 @@ class LFIChecker:
         self.depth = depth
         self.silent = silent
         self.LFI_TEST_FILES = [
-            ('/etc/passwd', re.compile(r'root:(.*):\d+:\d+:')),
-            ('/Windows/System32/drivers/etc/hosts', re.compile(r'127\.0\.0\.1\s+localhost'))
+            #('/etc/passwd', re.compile(r'root:(.*):\d+:\d+:')),
+            #('/Windows/System32/drivers/etc/hosts', re.compile(r'127\.0\.0\.1\s+localhost'))
         ]
         self.LFI_PAYLOADS = [
             '../',  # Original
@@ -82,26 +82,32 @@ class LFIChecker:
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
                 try:
                     response = requests.get(fuzzed_url, verify=False)
-                    response_lengths.append(len(response.content))
+                    response_length = len(response.content)
+                    response_lengths.append(response_length)
+
+                    if file_regex and file_regex.search(response.text):
+                        if not self.silent:
+                            console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
+                        return True, param_name
+
+                    # Update stats
+                    avg = np.mean(response_lengths)
+                    stddev = np.std(response_lengths)
+
+                    # Detect if response length is an outlier
+                    if abs(response_length - avg) > 2*stddev:   # This is 2 standard deviation anomaly detection
+                        if not self.silent:
+                            #console.print("\n")
+                            console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
+                            
                 except requests.exceptions.ConnectionError:
                     connection_error_count += 1
                     if connection_error_count >= 10:
                         console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
                         return False
 
-                if file_regex and file_regex.search(response.text):
-                    if not self.silent:
-                        console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {len(response.content)}\nStatus code: {response.status_code}[/bold green]", style='bold green')
-                    return True, param_name
-
                 if progress:
                     progress.update(task, advance=1)
-
-            stddev = np.std(response_lengths)
-            avg = np.mean(response_lengths)
-            if stddev > 0.1 * avg:
-                if not self.silent:
-                    console.print(f"{fuzzed_url}, Response length: [{len(response.content)}], Code: [{response.status_code}][/bold green]", style='bold green')
 
             return False, None
 
@@ -109,6 +115,7 @@ class LFIChecker:
             results = list(executor.map(scan_param, params.keys()))
 
         return any(results), None
+
 
 def main():
     url = input('Enter site URL to test: ')
