@@ -120,7 +120,7 @@ class DataChecker:
                     
                 pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
                 response_content = pattern.search(response.text)
-                if response_content:
+                if response_content and response_content.group(1):
                     shell_output = response_content.group(1)
                     self.console.print(f"[bold green]{shell_output}[/bold green]")
                 else:

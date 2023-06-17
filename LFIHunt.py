@@ -22,7 +22,7 @@ class Module:
         if result == True and self.action:
             choice = console.input(f"[bold yellow]Select an action (1: [green]{self.action}[/green], 2: [red]Skip[/red]): ")
             if choice == "1":
-                if self.action == "Run shell" or self.action == "Run web shell":
+                if self.action == "Run shell":
                     getattr(self.checker, self.action.lower().replace(" ", "_"))(param_name)
                 elif self.action == "Exploit file":
                     filename = console.input('Enter filename to display: ')
@@ -51,7 +51,7 @@ def main():
         Module(url, PHPFilterChainGenerator, "filter_check", "Run shell"),
         Module(url, DataChecker, "data_check", "Run shell"),
         Module(url, PHPFilterChecker, "filter_check", "Exploit file"),
-        Module(url, EnvironChecker, "environ_check", "Run web shell"),
+        Module(url, EnvironChecker, "environ_check", "Run shell"),
         Module(url, LFIChecker, "path_traversal_checker", None)
     ]
 

