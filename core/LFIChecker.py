@@ -1,10 +1,10 @@
 import re
 import requests
-import urllib.parse
 import numpy as np
+import urllib.parse
+import concurrent.futures
 from rich.console import Console
 from rich.progress import Progress
-from concurrent.futures import ThreadPoolExecutor
 from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
@@ -54,7 +54,7 @@ class LFIChecker:
                 file_paths.append((payload * 10 + file_path, _))
                 file_paths.append((urllib.parse.quote(payload * 10 + file_path), _))
 
-        with open('wordlists/mini.txt', 'r') as f:
+        with open('wordlists/big.txt', 'r') as f:
             for line in f:
                 stripped_line = line.strip()
                 if stripped_line:  
@@ -74,51 +74,67 @@ class LFIChecker:
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
         response_lengths = []
         connection_error_count = 0
+        shared_results = []
+        stop_signal = False
 
-        def scan_param(param_name):
-            nonlocal connection_error_count
-            lfi_detected = False  
+        def send_request(file_path, file_regex, param_name):
+            nonlocal shared_results, connection_error_count, stop_signal
 
+            if stop_signal:
+                return
+
+            new_params = params.copy()
+            new_params[param_name] = file_path
+            new_query = urllib.parse.urlencode(new_params, doseq=True)
+            fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
+
+            try:
+                response = requests.get(fuzzed_url, verify=False)
+                response_length = len(response.content)
+                response_text = response.text
+
+                response_lengths.append(response_length)
+
+                lfi_detected = False
+                if file_regex and file_regex.search(response_text):
+                    if not self.silent:
+                        console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
+                    lfi_detected = True
+
+                # Update stats
+                avg = np.mean(response_lengths)
+                stddev = np.std(response_lengths)
+
+                # Detect if response length is an outlier
+                if abs(response_length - avg) > 2 * stddev and response.status_code < 400:
+                    if not self.silent:
+                        console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
+                    lfi_detected = True
+
+                if lfi_detected:
+                    shared_results.append((True, param_name))
+
+            except requests.exceptions.ConnectionError:
+                connection_error_count += 1
+                if connection_error_count >= 10:
+                    console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
+                    shared_results.append((False, None))
+                    stop_signal = True
+
+            if progress:
+                progress.update(task, advance=1)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            futures = []
             for file_path, file_regex in file_paths:
-                new_params = params.copy()
-                new_params[param_name] = file_path
-                new_query = urllib.parse.urlencode(new_params, doseq=True)
-                fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                try:
-                    response = requests.get(fuzzed_url, verify=False)
-                    response_length = len(response.content)
-                    response_lengths.append(response_length)
+                for param_name in params.keys():
+                    futures.append(executor.submit(send_request, file_path, file_regex, param_name))
 
-                    if file_regex and file_regex.search(response.text):
-                        if not self.silent:
-                            console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
-                        lfi_detected = True
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
 
-                    # Update stats
-                    avg = np.mean(response_lengths)
-                    stddev = np.std(response_lengths)
+        return any(result for result, _ in shared_results), None
 
-                    # Detect if response length is an outlier
-                    if abs(response_length - avg) > 2*stddev and response.status_code < 400:   # This is 2 standard deviation anomaly detection
-                        if not self.silent:
-                            console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
-                        lfi_detected = True
-
-                except requests.exceptions.ConnectionError:
-                    connection_error_count += 1
-                    if connection_error_count >= 10:
-                        console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
-                        return False, None
-
-                if progress:
-                    progress.update(task, advance=1)
-
-            return lfi_detected, param_name if lfi_detected else None
-
-
-        with ThreadPoolExecutor(max_workers=300) as executor:
-            results = list(executor.map(scan_param, params.keys()))
-        return any(result for result, _ in results), None
 
 
 def main():
