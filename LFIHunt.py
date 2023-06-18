@@ -7,6 +7,7 @@ from core.DataChecker import DataChecker
 from core.EnvironChecker import EnvironChecker
 from core.PHPFilterChecker import PHPFilterChecker
 from core.PHPInputExploiter import PHPInputExploiter
+from core.PHPPearCmdChecker import PHPPearCmdChecker
 from core.PHPFilterChainGenerator import PHPFilterChainGenerator
 
 console = Console()
@@ -65,6 +66,7 @@ def main():
         Module(url, DataChecker, "data_check", "Run shell"),
         Module(url, PHPFilterChecker, "filter_check", "Exploit file"),
         Module(url, EnvironChecker, "environ_check", "Run shell"),
+        Module(url, PHPPearCmdChecker, "pearcmd_check", "Run shell"),
         Module(url, LFIChecker, "path_traversal_checker", None)
     ]
 
