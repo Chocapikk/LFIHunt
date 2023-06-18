@@ -1,4 +1,6 @@
 from rich.console import Console
+from prompt_toolkit import HTML, PromptSession
+from prompt_toolkit.history import InMemoryHistory
 
 from core.LFIChecker import LFIChecker
 from core.DataChecker import DataChecker
@@ -11,9 +13,16 @@ console = Console()
 
 class Module:
     def __init__(self, url, checker_class, check_method, action):
-        self.checker = checker_class(url, silent=False)
+        self.url = url
+        self.checker_class = checker_class
         self.check_method = check_method
         self.action = action
+        self.checker = self.checker_class(self.url, silent=False)
+
+    def update_url(self, new_url):
+        self.url = new_url
+        self.checker = self.checker_class(self.url, silent=False)
+
 
     def run(self):
         result, param_name = getattr(self.checker, self.check_method)()
@@ -44,7 +53,11 @@ def banner():
     
 def main():
     banner()
-    url = console.input('[bold yellow]Enter site URL to test: [/bold yellow]')
+
+    url_session = PromptSession(history=InMemoryHistory())
+    cmd_session = PromptSession(history=InMemoryHistory())
+
+    url = url_session.prompt(HTML('<b><ansiyellow>Enter site URL to test: </ansiyellow></b>'))
 
     modules = [
         Module(url, PHPInputExploiter, "filter_check", "Run shell"),
@@ -60,16 +73,24 @@ def main():
             console.print("\n[bold yellow]Select a module to run:[/bold yellow]")
             for i, module in enumerate(modules, 1):
                 console.print(f"[bold cyan]{i}[/bold cyan]: [bold green]{module.checker.__class__.__name__}[/bold green]")
+            
+            console.print(f"[bold cyan]{len(modules) + 1}[/bold cyan]: [bold green]Change URL[/bold green]")
 
-            console.print("[bold][red]>[/red][yellow]>[/yellow][green]>[/green] ", end="")
-            choice = console.input()
-            if choice.isdigit() and 1 <= int(choice) <= len(modules):
-                modules[int(choice) - 1].run()
+            choice = cmd_session.prompt(HTML('<b><ansired>></ansired><ansiyellow>></ansiyellow><ansigreen>></ansigreen></b> '))
+            if choice.isdigit():
+                if 1 <= int(choice) <= len(modules):
+                    modules[int(choice) - 1].run()
+                elif int(choice) == len(modules) + 1:
+                    url = url_session.prompt(HTML('<b><ansiyellow>Enter new site URL to test: </ansiyellow></b>'))
+                    for module in modules:
+                        module.update_url(url)
+                else:
+                    break
             else:
                 break
         except KeyboardInterrupt:
             console.print("\n[bold yellow]Bye Bye H4x0R !!![/bold yellow]") 
-            break   
+            break     
 
 if __name__ == '__main__':
     main()

@@ -124,7 +124,7 @@ class LFIChecker:
             if progress:
                 progress.update(task, advance=1)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
             futures = []
             for file_path, file_regex in file_paths:
                 for param_name in params.keys():
