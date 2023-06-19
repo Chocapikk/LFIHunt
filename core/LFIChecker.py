@@ -1,4 +1,6 @@
 import re
+import random
+import string
 import requests
 import numpy as np
 import urllib.parse
@@ -77,6 +79,11 @@ class LFIChecker:
         shared_results = []
         stop_signal = False
 
+        for param in params:
+            random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+            response = requests.get(self.url, params={param: random_string}, verify=False)
+            response_lengths.append(len(response.content))
+
         def send_request(file_path, file_regex, param_name):
             nonlocal shared_results, connection_error_count, stop_signal
 
@@ -106,7 +113,7 @@ class LFIChecker:
                 stddev = np.std(response_lengths)
 
                 # Detect if response length is an outlier
-                if abs(response_length - avg) > 2 * stddev and response.status_code < 400:
+                if abs(response_length - avg) > 2.5 * stddev and response.status_code < 400 and not response.history:            
                     if not self.silent:
                         console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
                     lfi_detected = True

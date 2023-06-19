@@ -21,8 +21,11 @@ class DataChecker:
         self.silent = silent
         self.random_string = self._generate_random_string()
         self.random_string_base64 = base64.b64encode(self.random_string.encode()).decode()
+        half = len(self.random_string_base64) // 2
+        self.random_string_base64_first_half = self.random_string_base64[:half]
+        self.random_string_base64_second_half = self.random_string_base64[half:]
         self.DATA_PAYLOADS = [
-            f'data://text/plain,<?php echo "{self.random_string_base64}"; ?>',
+            f'data://text/plain,<?php echo "{self.random_string_base64_first_half}" . "{self.random_string_base64_second_half}"; ?>',
         ]
 
     def ensure_correct_protocol(self, url):
