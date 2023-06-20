@@ -78,7 +78,7 @@ class PHPFilterChecker:
                 valid_matches = []
                 for match in matches:
                     try:
-                        base64.b64decode(match)
+                        base64.b64decode(match).decode("utf-8")
                         if len(match) > 50:  
                             valid_matches.append(match)  
                     except:
