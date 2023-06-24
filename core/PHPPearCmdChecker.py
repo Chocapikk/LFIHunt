@@ -17,8 +17,9 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 
 class PHPPearCmdChecker():
-    def __init__(self, url, silent=False):
+    def __init__(self, url, silent=False, threads=300):
         self.url = url
+        self.threads = threads
         self.param_name = None
         self.silent = silent
         self.console = Console()
@@ -101,7 +102,7 @@ class PHPPearCmdChecker():
         stop_signal = False
         print_message = False
         total_tasks = len(params.keys()) * len(file_paths)
-        task = progress.add_task("[cyan]Scanning...", total=total_tasks) if progress else None
+        task = progress.add_task("[cyan]Scanning...", total=total_tasks) if progress and not self.silent else None
 
         def send_request(file_path, param_name):
             nonlocal shared_results, stop_signal, connection_error_count
@@ -129,7 +130,7 @@ class PHPPearCmdChecker():
                     stop_signal = True
                 return False    
 
-        with ThreadPoolExecutor(max_workers=100) as executor:
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [executor.submit(send_request, file_path, param_name)
                     for file_path in file_paths for param_name in params.keys()]
 

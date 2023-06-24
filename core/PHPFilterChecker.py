@@ -68,11 +68,15 @@ class PHPFilterChecker:
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
                 try:
-                    response = requests.get(fuzzed_url, verify=False)
+                    response = requests.get(fuzzed_url, timeout=5, verify=False)
                 except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    if not self.silent:
+                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
                     return False, None
-                        
+                except requests.exceptions.RequestException:
+                    if not self.silent:
+                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+                    return False, None
 
                 matches = file_regex.findall(response.text)
                 valid_matches = []

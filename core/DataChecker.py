@@ -71,11 +71,15 @@ class DataChecker:
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
                 
                 try:
-                    response = requests.get(fuzzed_url, verify=False)
+                    response = requests.get(fuzzed_url, timeout=5, verify=False)
                 except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False, None    
-
+                    if not self.silent:
+                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    return False, None
+                except requests.exceptions.RequestException:
+                    if not self.silent:
+                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+                    return False, None
                 if payload_regex.search(response.text):
                     if not self.silent:
                         console.print(f'\n[bold red]Possible LFI2RCE (data_wrapper: method)[/bold red] (data: method)', style='bold red')

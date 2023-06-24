@@ -1,6 +1,8 @@
+alive_progress==3.1.4
 numpy==1.24.1
 prompt_toolkit==3.0.36
 Pygments==2.14.0
 requests==2.25.1
 rich==13.4.2
+termcolor==2.3.0
 urllib3==1.26.12

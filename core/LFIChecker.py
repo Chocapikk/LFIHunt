@@ -15,6 +15,7 @@ class LFIChecker:
     def __init__(self, url, depth=10, silent=False):
         self.url = self.ensure_correct_protocol(url)
         self.depth = depth
+        self.param_name = None
         self.silent = silent
         self.LFI_TEST_FILES = [
             #('/etc/passwd', re.compile(r'root:(.*):\d+:\d+:')),
@@ -111,6 +112,7 @@ class LFIChecker:
                     if not self.silent:
                         console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
                     lfi_detected = True
+                    self.param_name = param_name
 
                 # Update stats
                 avg = np.mean(response_lengths)
@@ -121,6 +123,7 @@ class LFIChecker:
                     if not self.silent:
                         console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
                     lfi_detected = True
+                    self.param_name = param_name
 
                 if lfi_detected:
                     shared_results.append((True, param_name))
@@ -144,7 +147,7 @@ class LFIChecker:
             for future in concurrent.futures.as_completed(futures):
                 future.result()
 
-        return any(result for result, _ in shared_results), None
+        return any(result for result, _ in shared_results), self.param_name
 
 
 
