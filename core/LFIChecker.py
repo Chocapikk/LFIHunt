@@ -1,26 +1,25 @@
-import os
 import random
 import string
 import threading
-import requests
 import urllib.parse
 import concurrent.futures
 from statistics import mean, stdev
+
+import requests
 from rich.console import Console
 from rich.progress import Progress
-from urllib3.exceptions import InsecureRequestWarning
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker, wordlist_path
 
-class LFIChecker:
+
+class LFIChecker(BaseChecker):
     def __init__(self, url, depth=10, silent=False):
-        self.url = self.ensure_correct_protocol(url)
+        super().__init__(url, silent)
         self.depth = depth
         self.param_name = None
-        self.silent = silent
         self.LFI_TEST_FILES = [
-            #('/etc/passwd', re.compile(r'root:(.*):\d+:\d+:')),
-            #('/Windows/System32/drivers/etc/hosts', re.compile(r'127\.0\.0\.1\s+localhost'))
+            # ('/etc/passwd', re.compile(r'root:(.*):\d+:\d+:')),
+            # ('/Windows/System32/drivers/etc/hosts', re.compile(r'127\.0\.0\.1\s+localhost'))
         ]
         self.LFI_PAYLOADS = [
             '../',  # Original
@@ -35,19 +34,6 @@ class LFIChecker:
             '%252e%252e%252f'  # Double encoding with dot
         ]
 
-    def ensure_correct_protocol(self, url):
-        if not url.startswith(('http://', 'https://')):
-            try:
-                requests.get('https://' + url, timeout=3, verify=False)
-                return 'https://' + url
-            except requests.exceptions.RequestException:
-                try:
-                    requests.get('http://' + url, timeout=3, verify=False)
-                    return 'http://' + url
-                except requests.exceptions.RequestException:
-                    pass
-        return url
-    
     def path_traversal_checker(self):
         parsed_url = urllib.parse.urlparse(self.url)
         params = urllib.parse.parse_qs(parsed_url.query)
@@ -58,13 +44,12 @@ class LFIChecker:
                 file_paths.append((payload * 10 + file_path, _))
                 file_paths.append((urllib.parse.quote(payload * 10 + file_path), _))
 
-        wordlist_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wordlists', 'big.txt')
-        with open(wordlist_path, 'r') as f:
+        wl_path = wordlist_path('big.txt')
+        with open(wl_path, 'r') as f:
             for line in f:
                 stripped_line = line.strip()
-                if stripped_line:  
+                if stripped_line:
                     file_paths.append((stripped_line, None))
-
 
         console = Console()
         total_operations = len(params.keys()) * len(file_paths)
@@ -153,7 +138,6 @@ class LFIChecker:
                 future.result()
 
         return any(result for result, _ in shared_results), self.param_name
-
 
 
 def main():

