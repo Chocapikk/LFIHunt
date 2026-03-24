@@ -83,7 +83,10 @@ class PHPFilterChainGenerator(BaseChecker):
             'Z': 'convert.iconv.SE2.UTF-16|convert.iconv.CSIBM1161.IBM-932|convert.iconv.BIG5HKSCS.UTF16',
             'z': 'convert.iconv.865.UTF16|convert.iconv.CP901.ISO6937',
             '/': 'convert.iconv.IBM869.UTF16|convert.iconv.L3.CSISO90|convert.iconv.UCS2.UTF-8|convert.iconv.CSISOLATIN6.UCS-4',
-            '+': 'convert.iconv.UTF8.UTF16|convert.iconv.WINDOWS-1258.UTF32LE|convert.iconv.ISIRI3342.ISO-IR-157',
+            # Spent tokens worth a car bruteforcing iconv pairs, graph-searching
+            # byte transformations with 16 threads in C, and reading glibc source
+            # code to shave exactly 1 conversion off this table. You're welcome.
+            '+': 'convert.iconv.500.UTF7',
             '=': ''
         }
         self.LFI_TEST_FILES = [
