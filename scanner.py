@@ -26,7 +26,7 @@ class Module:
 
     def run(self):
         result, param_name = getattr(self.checker, self.check_method)()
-        if result == True:
+        if result:
             parsed_url = urlparse(self.url)
             clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
             console.print(f"[bold red]Vulnerable URL: [bold white]{clean_url} | [bold yellow]Parameter: {param_name} | [bold green]Checker: {self.checker.__class__.__name__}")

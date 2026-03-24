@@ -11,7 +11,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from urllib3.exceptions import InsecureRequestWarning
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
@@ -23,7 +23,9 @@ class PHPPearCmdChecker():
         self.param_name = None
         self.silent = silent
         self.console = Console()
-        self.PEARCMD_FILEPATHS = self.load_file_paths('wordlists/pearcmd.txt')
+        self.PEARCMD_FILEPATHS = self.load_file_paths(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wordlists', 'pearcmd.txt')
+        )
 
     def load_file_paths(self, filepath):
         file_path = []
@@ -151,7 +153,7 @@ class PHPPearCmdChecker():
             print_message = True
 
         if print_message and not self.silent:
-            self.console.print(f'\n[bold red]Possible LFI2RCE (php_pearcmd: method)[/bold red]', style='bold red')
+            self.console.print('\n[bold red]Possible LFI2RCE (php_pearcmd: method)[/bold red]', style='bold red')
 
             if any(shared_results):
                 self.console.print(f"\n[bold green](using param '{self.param_name}')[/bold green]")
@@ -227,7 +229,7 @@ class PHPPearCmdChecker():
                                             shell_output = response_content.group(1)
                                             self.console.print(f"[bold green]{shell_output}[/bold green]")
                                             break
-                                        elif _ == attempts and not response_content:
+                                        elif _ == attempts - 1 and not response_content:
                                             self.console.print("[bold red]No shell output. (Retry because this method is not stable)[/bold red]")
 
                                 except KeyboardInterrupt:

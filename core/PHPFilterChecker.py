@@ -85,8 +85,8 @@ class PHPFilterChecker:
                         base64.b64decode(match).decode("utf-8")
                         if len(match) > 50:  
                             valid_matches.append(match)  
-                    except:
-                        continue  
+                    except Exception:
+                        continue
                 if valid_matches:  
                     if not self.silent:
                         self.console.print(f"\n[bold red]Possible LFI detected (php_filter: method)[/bold red] in '{param_name}' with '{file_path}'", style='bold red')
@@ -129,21 +129,21 @@ class PHPFilterChecker:
                 try:
                     decoded_content = base64.b64decode(base64_content).decode("utf-8")
                     decoded_contents.append(decoded_content)
-                except:
+                except Exception:
                     pass
 
             if decoded_contents:
                 code_string = ''.join(decoded_contents)
                 try:
                     lexer = guess_lexer(code_string)
-                except:
-                    lexer = get_lexer_by_name("text")  
+                except Exception:
+                    lexer = get_lexer_by_name("text")
                 syntax = Syntax(code_string, lexer.name)
                 self.console.print(syntax)
             else:
                 print(f"No valid base64 content found. Displaying raw content: \n {response.text}")
 
-        except:
+        except Exception:
             print("Failed to exploit the LFI.")
             return False
 

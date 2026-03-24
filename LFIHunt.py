@@ -29,7 +29,7 @@ class Module:
         result, param_name = getattr(self.checker, self.check_method)()
         console.print(f"[bold white]LFI detected ([magenta][/bold white]{self.checker.__class__.__name__}[/magenta][bold white]):[/bold white] {result}")
         
-        if result == True and self.action:
+        if result and self.action:
             choice = console.input(f"[bold yellow]Select an action (1: [green]{self.action}[/green], 2: [red]Skip[/red]): ")
             if choice == "1":
                 if self.action == "Run shell":
