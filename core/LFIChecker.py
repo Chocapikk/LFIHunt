@@ -6,7 +6,6 @@ import concurrent.futures
 from statistics import mean, stdev
 
 import requests
-from rich.console import Console
 from rich.progress import Progress
 
 from core.base import BaseChecker, wordlist_path
@@ -51,16 +50,15 @@ class LFIChecker(BaseChecker):
                 if stripped_line:
                     file_paths.append((stripped_line, None))
 
-        console = Console()
         total_operations = len(params.keys()) * len(file_paths)
 
         if not self.silent:
-            with Progress(console=console) as progress:
-                return self._scan(params, file_paths, parsed_url, console, total_operations, progress)
+            with Progress(console=self.console) as progress:
+                return self._scan(params, file_paths, parsed_url, total_operations, progress)
 
-        return self._scan(params, file_paths, parsed_url, console)
+        return self._scan(params, file_paths, parsed_url)
 
-    def _scan(self, params, file_paths, parsed_url, console, total_operations=None, progress=None):
+    def _scan(self, params, file_paths, parsed_url, total_operations=None, progress=None):
         task = progress.add_task("[cyan]Scanning...", total=total_operations) if progress else None
         response_lengths = []
         lock = threading.Lock()
@@ -74,7 +72,7 @@ class LFIChecker(BaseChecker):
                 response = requests.get(self.url, params={param: random_string}, verify=False)
                 response_lengths.append(len(response.content))
         except requests.exceptions.ConnectionError:
-            console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
+            self.console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
             return False, None
 
         def send_request(file_path, file_regex, param_name):
@@ -99,7 +97,7 @@ class LFIChecker(BaseChecker):
                 lfi_detected = False
                 if file_regex and file_regex.search(response_text):
                     if not self.silent:
-                        console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
+                        self.console.print(f"[bold green]Possible LFI detected at {fuzzed_url}\nResponse length: {response_length}\nStatus code: {response.status_code}[/bold green]", style='bold green')
                     lfi_detected = True
                     self.param_name = param_name
 
@@ -111,7 +109,7 @@ class LFIChecker(BaseChecker):
                 # Detect if response length is an outlier
                 if stddev > 0 and abs(response_length - avg) > 2.5 * stddev and response.status_code < 400 and not response.history:
                     if not self.silent:
-                        console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
+                        self.console.print(f"[bold yellow]{fuzzed_url}[/bold yellow] - Length: [yellow]{response_length}[/yellow], Status code: [yellow]{response.status_code}[/yellow]", style='bold green')
                     lfi_detected = True
                     self.param_name = param_name
 
@@ -121,7 +119,7 @@ class LFIChecker(BaseChecker):
             except requests.exceptions.ConnectionError:
                 connection_error_count += 1
                 if connection_error_count >= 10:
-                    console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
+                    self.console.print("[bold red]Request Failed (possible WAF block)...[/bold red]")
                     shared_results.append((False, None))
                     stop_signal = True
 

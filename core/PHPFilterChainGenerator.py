@@ -6,7 +6,9 @@ import string
 import urllib
 import urllib.parse
 
-from rich.console import Console
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import InMemoryHistory
 
 from core.base import BaseChecker
 
@@ -110,14 +112,13 @@ class PHPFilterChainGenerator(BaseChecker):
         return final_payload
 
     def filter_check(self):
-        console = Console()
         parsed_url = urllib.parse.urlparse(self.url)
         params = urllib.parse.parse_qs(parsed_url.query)
         file_paths = self.LFI_TEST_FILES
 
-        return self._scan(params, file_paths, parsed_url, console)
+        return self._scan(params, file_paths, parsed_url)
 
-    def _scan(self, params, file_paths, parsed_url, console):
+    def _scan(self, params, file_paths, parsed_url):
         for param_name in params.keys():
             for i, (file_path, file_regex) in enumerate(file_paths):
                 new_params = params.copy()
@@ -132,7 +133,7 @@ class PHPFilterChainGenerator(BaseChecker):
                 match = file_regex.search(response.text)
                 if match:
                     if not self.silent:
-                        console.print('\n[bold red]Possible LFI2RCE (php_filter_chain: method)[/bold red]', style='bold red')
+                        self.console.print('\n[bold red]Possible LFI2RCE (php_filter_chain: method)[/bold red]', style='bold red')
                     self.success_depth = i
                     self.base64_content = match.group(0)
                     return True, param_name
@@ -152,10 +153,6 @@ class PHPFilterChainGenerator(BaseChecker):
             return
 
         self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
-
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import InMemoryHistory
 
         session = PromptSession(history=InMemoryHistory())
         while True:

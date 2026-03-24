@@ -5,8 +5,6 @@ import string
 import urllib
 import urllib.parse
 
-from rich.console import Console
-
 from core.base import BaseChecker
 
 
@@ -33,18 +31,9 @@ class DataChecker(BaseChecker):
         for payload in self.DATA_PAYLOADS:
             payloads.append((payload, re.compile(fr'{self.random_string_base64}')))
 
-        console = Console()
-        total_operations = len(params.keys()) * len(payloads)
+        return self._scan(params, payloads, parsed_url)
 
-        if not self.silent:
-            return self._scan(params, payloads, parsed_url, console, total_operations)
-
-        return self._scan(params, payloads, parsed_url, console)
-
-    def _scan(self, params, payloads, parsed_url, console, total_operations=None, progress=None):
-        if progress:
-            progress.add_task("[cyan]Scanning...", total=total_operations)
-
+    def _scan(self, params, payloads, parsed_url):
         for param_name in params.keys():
             for payload, payload_regex in payloads:
                 new_params = params.copy()
@@ -57,7 +46,7 @@ class DataChecker(BaseChecker):
                     return False, None
                 if payload_regex.search(response.text):
                     if not self.silent:
-                        console.print('\n[bold red]Possible LFI2RCE (data_wrapper: method)[/bold red] (data: method)', style='bold red')
+                        self.console.print('\n[bold red]Possible LFI2RCE (data_wrapper: method)[/bold red] (data: method)', style='bold red')
                     return True, param_name
 
         return False, None

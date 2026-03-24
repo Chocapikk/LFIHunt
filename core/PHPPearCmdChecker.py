@@ -5,7 +5,9 @@ import socket
 import urllib.parse
 
 import requests
-
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import InMemoryHistory
 from rich.progress import Progress
 from concurrent.futures import ThreadPoolExecutor
 
@@ -171,10 +173,6 @@ class PHPPearCmdChecker(BaseChecker):
             self.console.print("[bold red]Request Failed (WAF or down host)...[/bold red]")
             print(exc)
             return False, None
-
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import InMemoryHistory
 
         for _ in range(2):
             for filename in filenames:

